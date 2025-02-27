@@ -1,0 +1,73 @@
+- name: Deploy React App to Remote Nginx
+  hosts: remote_server
+  become: yes  # Run as sudo on the remote server
+  vars:
+    repo_url: "git@github.com:thinkvalleyacademy/tva-dashboard-ui.git"
+    branch_name: "main_v1_dev_release"
+    local_build_dir: "tva-dashboard-ui"
+    remote_deploy_dir: "/var/www/react-app"
+    nginx_config_path: "/etc/nginx/sites-available/react-app"
+    nginx_config_link: "/etc/nginx/sites-enabled/react-app"
+    port: 3005
+
+  tasks:
+    - name: Ensure local build directory exists
+      delegate_to: localhost
+      file:
+        path: "{{ local_build_dir }}"
+        state: directory
+
+    - name: Clone the React repository locally
+      delegate_to: localhost
+      environment:
+        GIT_SSH_COMMAND: "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no"
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ local_build_dir }}"
+        version: "{{ branch_name }}"
+        force: yes
+
+    - name: Install dependencies and build React app
+      delegate_to: localhost
+      shell: |
+        cd {{ local_build_dir }}
+        npm install
+        npm run build
+      args:
+        chdir: "{{ local_build_dir }}"
+
+    - name: Copy React build files to remote server
+      become: no  # Do not use sudo for local-to-remote sync
+      synchronize:
+        src: "{{ local_build_dir }}/build/"
+        dest: "{{ remote_deploy_dir }}"
+        delete: yes
+      delegate_to: localhost
+
+    - name: Set permissions for deployed files (on remote)
+      file:
+        path: "{{ remote_deploy_dir }}"
+        owner: www-data
+        group: www-data
+        mode: '0755'
+        recurse: yes
+
+    - name: Configure Nginx for React App
+      template:
+        src: nginx-react-app.j2
+        dest: "{{ nginx_config_path }}"
+      notify: Restart Nginx
+
+    - name: Enable Nginx site
+      file:
+        src: "{{ nginx_config_path }}"
+        dest: "{{ nginx_config_link }}"
+        state: link
+      notify: Restart Nginx
+
+  handlers:
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted
+

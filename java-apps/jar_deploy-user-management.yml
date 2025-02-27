@@ -1,0 +1,78 @@
+- name: Deploy Java App as JAR to Remote Server
+  hosts: remote_server
+  become: no  # Disable sudo globally
+  vars:
+    repo_url: "git@github.com:thinkvalleyacademy/user-management.git"
+    branch_name: "main_v1_dev_release"
+    local_build_dir: "user-management"
+    jar_file: "user-management/target/user-management.jar"
+    remote_deploy_dir: "/opt/user-management"
+    java_cmd: "java -jar"
+    log_file: "/opt/user-management/user-management.log"
+    process_name: "user-management"
+
+  tasks:
+    - name: Ensure local build directory exists
+      delegate_to: localhost
+      file:
+        path: "{{ local_build_dir }}"
+        state: directory
+
+    - name: Clone the GitHub repository (locally)
+      delegate_to: localhost
+      environment:
+        GIT_SSH_COMMAND: "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no"
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ local_build_dir }}"
+        version: "{{ branch_name }}"
+        force: yes
+
+    - name: Build Java project using Maven (locally)
+      delegate_to: localhost
+      shell: |
+        cd {{ local_build_dir }}
+        mvn clean package
+      args:
+        creates: "{{ jar_file }}"
+
+    - name: Create remote deploy directory if not exists
+      become: yes
+      file:
+        path: "{{ remote_deploy_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Stop existing application (if running)
+      become: yes
+      shell: |
+        pgrep -f "{{ jar_file }}" | xargs --no-run-if-empty kill -9
+      ignore_errors: yes
+
+    - name: Copy JAR file to remote server
+      become: yes
+      copy:
+        src: "{{ jar_file }}"
+        dest: "{{ remote_deploy_dir }}/user-management.jar"
+        mode: '0755'
+
+    - name: Start the application in background with nohup
+      become: yes
+      shell: |
+        nohup {{ java_cmd }} {{ remote_deploy_dir }}/user-management.jar > {{ log_file }} 2>&1 &
+      args:
+        chdir: "{{ remote_deploy_dir }}"
+      async: 10
+      poll: 0
+
+    - name: Verify application is running
+      become: yes
+      shell: "pgrep -f user-management.jar"
+      register: app_status
+      ignore_errors: yes
+
+    - name: Display application status
+      debug:
+        msg: "Application is running with PID {{ app_status.stdout }}" 
+      when: app_status.stdout | length > 0
+

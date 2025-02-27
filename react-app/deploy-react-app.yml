@@ -1,0 +1,122 @@
+- name: Deploy React App to Remote Nginx
+  hosts: remote_server
+  become: yes  # Run tasks with sudo privileges when needed
+  vars:
+    repo_url: "git@github.com:thinkvalleyacademy/tva-dashboard-ui.git"
+    branch_name: "main_v1_dev_release"
+    local_build_dir: "tva-dashboard-ui"
+    build_output: "tva-dashboard-ui/build"
+    archive_name: "react-app.tar.gz"
+    remote_deploy_dir: "/var/www/react-app"
+    nginx_service: "nginx"
+    nginx_config_path: "/etc/nginx/sites-available/react-app"
+    nginx_symlink_path: "/etc/nginx/sites-enabled/react-app"
+    server_port: "3005"
+
+  tasks:
+    - name: Ensure local build directory exists
+      delegate_to: localhost
+      file:
+        path: "{{ local_build_dir }}"
+        state: directory
+
+    - name: Clone the React repository (locally)
+      delegate_to: localhost
+      environment:
+        GIT_SSH_COMMAND: "ssh -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=no"
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ local_build_dir }}"
+        version: "{{ branch_name }}"
+        force: yes
+
+    - name: Install dependencies and build React app (locally)
+      delegate_to: localhost
+      shell: |
+        cd {{ local_build_dir }}
+        npm install
+        npm run build
+
+    - name: Archive the React build folder (locally)
+      delegate_to: localhost
+      archive:
+        path: "{{ build_output }}"
+        dest: "{{ archive_name }}"
+        format: gz
+
+    - name: Copy the compressed archive to the remote server
+      copy:
+        src: "{{ archive_name }}"
+        dest: "/tmp/{{ archive_name }}"
+        mode: '0644'
+
+    - name: Ensure remote deploy directory exists
+      file:
+        path: "{{ remote_deploy_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Extract the React build archive on the remote server
+      unarchive:
+        src: "/tmp/{{ archive_name }}"
+        dest: "{{ remote_deploy_dir }}"
+        remote_src: yes
+        extra_opts: [--strip-components=1]  # Remove the 'build' folder wrapper
+
+    - name: Set correct permissions on deployed files
+      file:
+        path: "{{ remote_deploy_dir }}"
+        state: directory
+        mode: '0755'
+        recurse: yes
+
+    - name: Create Nginx configuration for React app
+      copy:
+        dest: "{{ nginx_config_path }}"
+        content: |
+          server {
+              listen {{ server_port }};
+              server_name _;
+
+              root {{ remote_deploy_dir }};
+              index index.html;
+
+              location / {
+                  try_files $uri /index.html;
+              }
+
+              error_log /var/log/nginx/react-app-error.log;
+              access_log /var/log/nginx/react-app-access.log;
+          }
+        mode: '0644'
+
+    - name: Enable the Nginx site (Create symlink)
+      file:
+        src: "{{ nginx_config_path }}"
+        dest: "{{ nginx_symlink_path }}"
+        state: link
+        force: yes
+
+    - name: Remove default Nginx site (if exists)
+      file:
+        path: "/etc/nginx/sites-enabled/default"
+        state: absent
+
+    - name: Test Nginx configuration
+      command: nginx -t
+      register: nginx_test
+      changed_when: nginx_test.rc != 0
+
+    - name: Restart Nginx to apply changes
+      systemd:
+        name: "{{ nginx_service }}"
+        state: restarted
+        enabled: yes
+
+    - name: Open firewall port {{ server_port }}
+      ufw:
+        rule: allow
+        port: "{{ server_port }}"
+        proto: tcp
+      when: ansible_os_family == "Debian"
+
