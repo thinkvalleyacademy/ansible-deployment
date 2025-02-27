@@ -7,6 +7,7 @@
     local_build_dir: "user-management"
     jar_file: "user-management/target/user-management.jar"
     remote_deploy_dir: "/opt/user-management"
+    backup_dir: "/opt/user-management/backup"
     java_cmd: "java -jar"
     log_file: "/opt/user-management/user-management.log"
     process_name: "user-management"
@@ -36,20 +37,30 @@
       args:
         creates: "{{ jar_file }}"
 
-    - name: Create remote deploy directory if not exists
+    - name: Create remote deploy and backup directories if not exists
       become: yes
       file:
-        path: "{{ remote_deploy_dir }}"
+        path: "{{ item }}"
         state: directory
         mode: '0755'
+      loop:
+        - "{{ remote_deploy_dir }}"
+        - "{{ backup_dir }}"
 
     - name: Stop existing application (if running)
       become: yes
       shell: |
-        pgrep -f "{{ jar_file }}" | xargs --no-run-if-empty kill -9
+        pkill -f user-management.jar || true
       ignore_errors: yes
 
-    - name: Copy JAR file to remote server
+    - name: Move existing JAR file to backup folder with timestamp
+      become: yes
+      shell: |
+        if [ -f "{{ remote_deploy_dir }}/user-management.jar" ]; then
+          mv "{{ remote_deploy_dir }}/user-management.jar" "{{ backup_dir }}/user-management_$(date +%F_%H-%M-%S).jar"
+        fi
+
+    - name: Copy new JAR file to remote server
       become: yes
       copy:
         src: "{{ jar_file }}"
