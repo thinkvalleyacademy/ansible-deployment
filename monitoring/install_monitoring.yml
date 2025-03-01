@@ -1,0 +1,95 @@
+- name: Install Grafana, Prometheus, and Node Exporter using Docker
+  hosts: remote_server
+  become: yes  # Run as sudo
+
+  vars:
+    prometheus_config_local: "./prometheus.yml"
+    prometheus_config_remote: "/etc/prometheus/prometheus.yml"
+
+  tasks:
+    - name: Install Docker on Remote Server
+      apt:
+        name: docker.io
+        state: present
+        update_cache: yes
+
+    - name: Start and Enable Docker Service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Create Docker Network for Monitoring
+      docker_network:
+        name: monitoring_net
+        state: present
+
+    - name: Ensure Prometheus Configuration Directory Exists
+      file:
+        path: /etc/prometheus
+        state: directory
+        mode: '0755'
+
+    - name: Ensure Prometheus Data Directory Exists
+      file:
+        path: /var/lib/prometheus
+        state: directory
+        mode: '0777'
+
+    - name: Create Prometheus Configuration Locally
+      delegate_to: localhost
+      become: no
+      copy:
+        dest: "{{ prometheus_config_local }}"
+        mode: '0644'
+        content: |
+          global:
+            scrape_interval: 15s
+
+          scrape_configs:
+            - job_name: 'node_exporter'
+              static_configs:
+                - targets: ['node_exporter:9100']
+
+    - name: Copy Prometheus Configuration to Remote Server
+      copy:
+        src: "{{ prometheus_config_local }}"
+        dest: "{{ prometheus_config_remote }}"
+        mode: '0644'
+
+    - name: Run Node Exporter Container on Remote Server
+      docker_container:
+        name: node_exporter
+        image: quay.io/prometheus/node-exporter:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "9100:9100"
+        networks:
+          - name: monitoring_net
+
+    - name: Run Prometheus Container on Remote Server
+      docker_container:
+        name: prometheus
+        image: prom/prometheus:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "9090:9090"
+        volumes:
+          - "{{ prometheus_config_remote }}:/etc/prometheus/prometheus.yml:ro"
+          - /var/lib/prometheus:/prometheus
+        networks:
+          - name: monitoring_net
+
+    - name: Run Grafana Container on Remote Server
+      docker_container:
+        name: grafana
+        image: grafana/grafana:latest
+        state: started
+        restart_policy: always
+        ports:
+          - "3000:3000"
+        networks:
+          - name: monitoring_net
+

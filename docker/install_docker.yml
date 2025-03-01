@@ -1,0 +1,20 @@
+- name: Install Docker on Remote Server
+  hosts: remote_server
+  become: yes  # Run as sudo
+
+  tasks:
+    - name: Update package index
+      apt:
+        update_cache: yes
+
+    - name: Install Docker
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Start and Enable Docker Service
+      service:
+        name: docker
+        state: started
+        enabled: yes
+

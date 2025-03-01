@@ -1,0 +1,40 @@
+- name: Install and Configure Tomcat on Remote Server
+  hosts: remote_server
+  become: yes  # Run as sudo on the remote server
+
+  vars:
+    tomcat_version: "11.0.3"
+    tomcat_url: "https://downloads.apache.org/tomcat/tomcat-11/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
+    tomcat_install_dir: "/opt/tomcat"
+    local_download_path: "./apache-tomcat-{{ tomcat_version }}.tar.gz"
+
+  tasks:
+    - name: Download Tomcat archive on MacBook (local)
+      delegate_to: localhost
+      become: no  # Don't use sudo on localhost
+      get_url:
+        url: "{{ tomcat_url }}"
+        dest: "{{ local_download_path }}"
+        mode: '0644'
+
+    - name: Copy Tomcat archive to remote server
+      copy:
+        src: "{{ local_download_path }}"
+        dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        mode: '0644'
+
+    - name: Extract Tomcat on Remote Server
+      unarchive:
+        src: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "/opt/"
+        remote_src: yes
+        extra_opts: [--strip-components=1]
+
+    - name: Ensure correct permissions for Tomcat installation
+      file:
+        path: "{{ tomcat_install_dir }}"
+        owner: tomcat
+        group: tomcat
+        mode: '0755'
+        recurse: yes
+

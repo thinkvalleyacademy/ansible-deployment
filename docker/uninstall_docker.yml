@@ -1,0 +1,45 @@
+- name: Uninstall Docker from Remote Server
+  hosts: remote_server
+  become: yes  # Run as sudo
+
+  tasks:
+    - name: Stop all running Docker containers
+      shell: docker ps -q | xargs -r docker stop
+      ignore_errors: yes
+
+    - name: Remove all Docker containers
+      shell: docker ps -aq | xargs -r docker rm
+      ignore_errors: yes
+
+    - name: Remove all Docker images
+      shell: docker images -q | xargs -r docker rmi -f
+      ignore_errors: yes
+
+    - name: Remove Docker networks
+      shell: docker network prune -f
+      ignore_errors: yes
+
+    - name: Remove Docker volumes
+      shell: docker volume prune -f
+      ignore_errors: yes
+
+    - name: Uninstall Docker package
+      apt:
+        name: docker.io
+        state: absent
+
+    - name: Remove Docker directories
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /var/lib/docker
+        - /etc/docker
+        - /var/run/docker.sock
+        - /usr/libexec/docker
+
+    - name: Remove unused dependencies
+      apt:
+        autoremove: yes
+        purge: yes
+
