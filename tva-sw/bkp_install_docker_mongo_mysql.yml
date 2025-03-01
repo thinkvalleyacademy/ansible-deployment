@@ -1,0 +1,48 @@
+- name: Dev Server Setup - MySQL & MongoDB Only
+  hosts: remote_server
+  become: yes  # Run as sudo
+
+  tasks:
+    - name: Pull MySQL Docker image on remote server
+      command: docker pull mysql:8.0
+
+    - name: Pull MongoDB Docker image on remote server
+      command: docker pull mongo:8.0
+
+    - name: Run MySQL container
+      docker_container:
+        name: mysql_container
+        image: mysql:8.0
+        state: started
+        restart_policy: always
+        env:
+          MYSQL_ROOT_PASSWORD: "root"
+          MYSQL_DATABASE: "school-management"
+          MYSQL_USER: "tva_rw"
+          MYSQL_PASSWORD: "tvadevsql123#"
+        ports:
+          - "3306:3306"
+        volumes:
+          - /data/mysql:/var/lib/mysql  # Persistent storage
+
+    - name: Run MongoDB container
+      docker_container:
+        name: mongo_container
+        image: mongo:8.0
+        state: started
+        restart_policy: always
+        env:
+          MONGO_INITDB_DATABASE: "school-management"
+          MONGO_INITDB_ROOT_USERNAME: "tva_rw"
+          MONGO_INITDB_ROOT_PASSWORD: "tvadevmongo123#"
+        ports:
+          - "27017:27017"
+        volumes:
+          - /data/mongo:/data/db  # Persistent storage
+
+    - name: Allow MongoDB port through firewall
+      ufw:
+        rule: allow
+        port: "27017"
+        proto: tcp
+

@@ -12,9 +12,24 @@
         name: docker.io
         state: present
 
-    - name: Start and Enable Docker Service
+    - name: Ensure Docker configuration directory exists
+      file:
+        path: /etc/docker
+        state: directory
+        mode: '0755'
+
+    - name: Configure Docker DNS settings
+      copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "dns": ["8.8.8.8", "1.1.1.1"]
+          }
+        mode: '0644'
+
+    - name: Restart Docker to apply DNS settings
       service:
         name: docker
-        state: started
+        state: restarted
         enabled: yes
 

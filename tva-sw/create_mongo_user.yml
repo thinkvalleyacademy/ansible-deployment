@@ -1,0 +1,20 @@
+- name: Create MongoDB read-write user
+  hosts: remote_server
+  become: yes
+  tasks:
+    - name: Create MongoDB user
+      shell: |
+        docker exec mongo_container mongosh --eval '
+        use tva_db;
+        db.createUser({
+          user: "tva_rw",
+          pwd: "tva_password#",
+          roles: [{ role: "readWrite", db: "tva_db" }]
+        });'
+      register: mongo_user_creation
+      changed_when: "'already exists' not in mongo_user_creation.stdout"
+      
+    - name: Show MongoDB user creation output
+      debug:
+        var: mongo_user_creation.stdout
+
